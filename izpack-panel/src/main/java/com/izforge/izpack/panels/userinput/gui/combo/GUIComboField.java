@@ -55,6 +55,7 @@ public class GUIComboField extends GUIField
         combo.setName(field.getVariable());
         for (Choice choice : field.getChoices())
         {
+
             combo.addItem(choice);
         }
         combo.setSelectedIndex(field.getSelectedIndex());
