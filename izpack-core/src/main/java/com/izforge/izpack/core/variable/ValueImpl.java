@@ -34,7 +34,7 @@ public abstract class ValueImpl implements Value
 {
     private InstallData installData;
 
-    private static Pattern RESOLVER_PATTERN = Pattern.compile("\\$\\{(.+?)\\}|\\$(.+?)");
+    private static Pattern RESOLVER_PATTERN = Pattern.compile("\\$\\{(.+?)\\}|\\$(.+?)\\b");
 
     @Override
     public abstract void validate() throws Exception;
@@ -78,7 +78,7 @@ public abstract class ValueImpl implements Value
         Set<String> unresolvedNames = new HashSet<String>();
         for (String s : strings)
         {
-            Matcher matcher = RESOLVER_PATTERN.matcher(s);
+            Matcher matcher = getUnresolvedVariableMatcher(s);
             while (matcher.find()) {
                 for (int i = 0; i < matcher.groupCount(); i++)
                 {
@@ -91,5 +91,16 @@ public abstract class ValueImpl implements Value
             }
         }
         return unresolvedNames;
+    }
+
+    private static Matcher getUnresolvedVariableMatcher(String value)
+    {
+        return RESOLVER_PATTERN.matcher(value);
+    }
+
+    public static boolean isUnresolved(String value)
+    {
+        Matcher matcher = getUnresolvedVariableMatcher(value);
+        return matcher.find();
     }
 }

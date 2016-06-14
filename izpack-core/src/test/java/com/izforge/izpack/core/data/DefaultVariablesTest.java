@@ -30,13 +30,19 @@ import com.izforge.izpack.api.rules.Condition;
 import com.izforge.izpack.core.container.DefaultContainer;
 import com.izforge.izpack.core.rules.ConditionContainer;
 import com.izforge.izpack.core.rules.RulesEngineImpl;
+import com.izforge.izpack.core.rules.process.ExistsCondition;
 import com.izforge.izpack.core.rules.process.VariableCondition;
 import com.izforge.izpack.core.variable.ConfigFileValue;
 import com.izforge.izpack.core.variable.PlainConfigFileValue;
 import com.izforge.izpack.core.variable.PlainValue;
 import com.izforge.izpack.util.Platforms;
+import org.apache.commons.io.FileUtils;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -240,9 +246,55 @@ public class DefaultVariablesTest
         assertEquals("/usr/local/bin", variables.get("INSTALL_PATH"));
     }
 
+    @Rule
+    public TemporaryFolder rootFolder = new TemporaryFolder();
+
     /**
-     * Tests simple dynamic variables.
+     * Tests for IZPACK-1260
      */
+    @Test
+    public void testDynamicVariablesIZPACK1260()
+    {
+        // set up conditions
+        Map<String, Condition> conditions = new HashMap<String, Condition>();
+        conditions.put("haveInstallPath", new ExistsCondition(ExistsCondition.ContentType.VARIABLE, "INSTALL_PATH"));
+        conditions.put("previous.wrapper.conf.exists", new ExistsCondition(ExistsCondition.ContentType.FILE, "${previous.wrapper.conf}"));
+
+        // set up the rules
+        AutomatedInstallData installData = new AutomatedInstallData(variables, Platforms.LINUX);
+        RulesEngineImpl rules = new RulesEngineImpl(installData, new ConditionContainer(new DefaultContainer()),
+                installData.getPlatform());
+        rules.readConditionMap(conditions);
+        ((DefaultVariables) variables).setRules(rules);
+
+        variables.add(createDynamicCheckonce("previous.wrapper.conf", "${INSTALL_PATH}/conf/wrapper.conf", "haveInstallPath"));
+        variables.add(createDynamicCheckonce("previous.wrapper.conf", "${INSTALL_PATH}/wrapper.conf", "haveInstallPath+!previous.wrapper.conf.exists"));
+
+        File installPath = null;
+        File confFile = null;
+        try
+        {
+            installPath = rootFolder.newFolder("myapp");
+            File confPath = new File(installPath, "conf");
+            confPath.mkdirs();
+            confFile = new File(confPath, "wrapper.conf");
+            FileUtils.touch(confFile);
+        }
+        catch (IOException e)
+        {
+            fail("File operation failed.");
+        }
+
+        variables.set("INSTALL_PATH", installPath.getAbsolutePath());
+
+        variables.refresh();
+
+        assertEquals(confFile.getAbsolutePath(), variables.get("previous.wrapper.conf"));
+    }
+
+        /**
+         * Tests simple dynamic variables.
+         */
     @Test
     public void testDynamicVariablesWithUserInput()
     {

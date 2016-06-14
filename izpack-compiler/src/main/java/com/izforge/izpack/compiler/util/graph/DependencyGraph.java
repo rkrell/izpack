@@ -130,7 +130,6 @@ public class DependencyGraph<Vertex>
         private void computeDepths()
         {
             HashSet<Vertex> visited = new HashSet<Vertex>();
-            System.out.println(st.keySet());
             for (Vertex vertex : st.keySet()) {
                 computeDepths(visited, vertex, 0);
             }

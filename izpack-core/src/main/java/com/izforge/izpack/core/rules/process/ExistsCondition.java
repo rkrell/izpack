@@ -50,9 +50,10 @@ public class ExistsCondition extends Condition
 
     public ExistsCondition() {}
 
-    public ExistsCondition(ContentType contentType)
+    public ExistsCondition(ContentType contentType, String content)
     {
         this.contentType = contentType;
+        this.content = content;
     }
 
     @Override

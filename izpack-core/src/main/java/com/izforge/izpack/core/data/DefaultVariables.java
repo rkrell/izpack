@@ -28,6 +28,7 @@ import com.izforge.izpack.api.exception.IzPackException;
 import com.izforge.izpack.api.rules.RulesEngine;
 import com.izforge.izpack.api.substitutor.VariableSubstitutor;
 import com.izforge.izpack.core.substitutor.VariableSubstitutorImpl;
+import com.izforge.izpack.core.variable.ValueImpl;
 
 import java.util.*;
 import java.util.logging.Level;
@@ -294,28 +295,8 @@ public class DefaultVariables implements Variables
         dynamicVariables.add(variable);
     }
 
-    private String evaluateVariable(DynamicVariable variable)
-    {
-        String newValue;
-        try
-        {
-            newValue = variable.evaluate(replacer);
-        }
-        catch (IzPackException exception)
-        {
-            throw exception;
-        }
-        catch (Exception exception)
-        {
-            throw new IzPackException("Failed to refresh dynamic variable (" + variable.getName() + ")", exception);
-        }
-        return newValue;
-    }
-
     /**
      * Refreshes dynamic variables.
-     * This method relies on a pre-ordered list @{code dynamicVariables} according to referred variables to
-     * resolve them in the right order.
      *
      * @throws InstallerException if variables cannot be refreshed
      */
@@ -323,60 +304,124 @@ public class DefaultVariables implements Variables
     public synchronized void refresh() throws InstallerException
     {
         logger.fine("Refreshing dynamic variables");
-
+        Set<DynamicVariable> checkedVariables = new HashSet<DynamicVariable>();
+        Set<String> unsetVariables = new HashSet<String>();
         Set<String> setVariables = new HashSet<String>();
+        // for dependent dynamic variables a size of dynamicVariables.size()+1 would be enough
+        // in case of conditions, which depend on dynamic variables also, we need more iterations
+        // to be on the safe side, we take 10*dynamicVariables.size()+1
+        int maxCount = 10*dynamicVariables.size()+1;
+        int count=maxCount;
+        boolean changed = true;
+        while (changed) {
+            Hashtable<String,String> originalValues = (Hashtable<String,String>) properties.clone();
+            changed = false;
+            count--;        // decrement number of remaining loops
+            if (count<0) {
+                throw new InstallerException(
+                        String.format("Refresh of dynamic variables seem to produce a loop. "
+                                +"Stopped after %1s iterations. "
+                                +"(Maybe a cyclic dependency of variables?)", maxCount));
 
-        for (DynamicVariable variable : dynamicVariables)
-        {
-            String name = variable.getName();
-            if (!isBlockedVariableName(name))
+            }
+            for (DynamicVariable variable : dynamicVariables)
             {
-                String conditionId = variable.getConditionid();
-                if (conditionId == null || rules.isConditionTrue(conditionId))
+                String name = variable.getName();
+                if (!isBlockedVariableName(name))
                 {
-                    if (!(variable.isCheckonce() && variable.isChecked()))
+                    String conditionId = variable.getConditionid();
+                    if (conditionId == null || rules.isConditionTrue(conditionId))
                     {
-                        String newValue = evaluateVariable(variable);
-                        if (newValue == null)
+                        if (!(variable.isCheckonce() && variable.isChecked()))
                         {
-                            if (variable.isAutoUnset())
+                            String newValue;
+                            try
                             {
-                                // Mark unset if dynamic variable cannot be evaluated and failOnError set
-                                set(name, null);
+                                newValue = variable.evaluate(replacer);
+                            }
+                            catch (IzPackException exception)
+                            {
+                                throw exception;
+                            }
+                            catch (Exception exception)
+                            {
+                                throw new IzPackException("Failed to refresh dynamic variable (" + name + ")", exception);
+                            }
+                            if (newValue == null)
+                            {
+                                if (variable.isAutoUnset())
+                                {
+                                    // Mark unset if dynamic variable cannot be evaluated and failOnError set
+                                    unsetVariables.add(name);
+                                }
+                            }
+                            else
+                            {
+                                set(name, newValue); // Set here for properly set conditions
+                                setVariables.add(name);
+                            }
+                            // FIXME: Possible problem if regular value contains dollar sign (for example password)
+                            if (!(newValue == null || ValueImpl.isUnresolved(newValue)))
+                            {
+                                variable.setChecked();
+                            } else {
+                                checkedVariables.add(variable);
                             }
                         }
                         else
                         {
-                            set(name, newValue);
-                            setVariables.add(name);
+                            String previousValue = properties.getProperty(name);
+                            if (previousValue != null)
+                            {
+                                set(name, previousValue); // Set here for properly set conditions
+                                setVariables.add(name);
+                            }
                         }
-                        variable.setChecked();
                     }
                     else
                     {
-                        if (!setVariables.contains(name))
+                        if (variable.isAutoUnset())
                         {
-                            String newValue = evaluateVariable(variable);
-                            set(name, newValue);
+                            // Mark unset if condition is not true
+                            unsetVariables.add(name);
                         }
-                        setVariables.add(name);
                     }
                 }
-                else
+                else {
+                    logger.fine("Dynamic variable '" + name + "' blocked from changing due to user input");
+                }
+            }
+
+            for (String key : unsetVariables)
+            {
+                // Don't unset dynamic variable from one definition, which
+                // are set to a value from another one during this refresh
+                if (!setVariables.contains(key))
                 {
-                    if (variable.isAutoUnset())
+                    if (get(key)!=null)
                     {
-                        // Mark unset if condition is not true
-                        if (!setVariables.contains(name) && get(name) != null)
-                        {
-                            set(name, null);
-                        }
+                        changed = true;
+                        set(key, null);
                     }
                 }
             }
-            else {
-                logger.fine("Dynamic variable '" + name + "' blocked from changing due to user input");
+
+            Iterator<String> setIterator = setVariables.iterator();
+            while(setIterator.hasNext())
+            {
+                String key = setIterator.next();
+                String newValue = get(key);
+                String oldValue = originalValues.get(key);
+                if (oldValue==null || !oldValue.equals(newValue))
+                {
+                    changed = true;
+                }
             }
+        } // while changed
+
+        for (DynamicVariable variable : checkedVariables)
+        {
+            variable.setChecked();
         }
     }
 

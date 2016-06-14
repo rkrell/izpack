@@ -390,6 +390,7 @@ public abstract class PackagerBase implements IPackager
         {
             for (DynamicVariable var : dynVariables)
             {
+                boolean added = false;
                 for (String childName : var.getUnresolvedVariableNames())
                 {
                     List<DynamicVariable> childVars = dynamicVariables.get(childName);
@@ -398,12 +399,16 @@ public abstract class PackagerBase implements IPackager
                         for (DynamicVariable childVar : childVars)
                         {
                             graph.addEdge(var, childVar);
+                            added = true;
                         }
                     }
                 }
+                if (!added)
+                {
+                    graph.addVertex(var);
+                }
             }
         }
-
         return graph.getOrderedList();
     }
 
